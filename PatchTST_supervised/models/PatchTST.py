@@ -45,6 +45,8 @@ class Model(nn.Module):
         decomposition = configs.decomposition
         kernel_size = configs.kernel_size
         
+        # Weekend embedding flag (default to True for electricity dataset)
+        use_weekend_embedding = getattr(configs, 'use_weekend_embedding', True)
         
         # model
         self.decomposition = decomposition
@@ -57,7 +59,7 @@ class Model(nn.Module):
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
+                                  subtract_last=subtract_last, use_weekend_embedding=use_weekend_embedding, verbose=verbose, **kwargs)
             self.model_res = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
                                   n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff, norm=norm, attn_dropout=attn_dropout,
@@ -65,7 +67,7 @@ class Model(nn.Module):
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
+                                  subtract_last=subtract_last, use_weekend_embedding=use_weekend_embedding, verbose=verbose, **kwargs)
         else:
             self.model = PatchTST_backbone(c_in=c_in, context_window = context_window, target_window=target_window, patch_len=patch_len, stride=stride, 
                                   max_seq_len=max_seq_len, n_layers=n_layers, d_model=d_model,
@@ -74,19 +76,19 @@ class Model(nn.Module):
                                   attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
                                   pe=pe, learn_pe=learn_pe, fc_dropout=fc_dropout, head_dropout=head_dropout, padding_patch = padding_patch,
                                   pretrain_head=pretrain_head, head_type=head_type, individual=individual, revin=revin, affine=affine,
-                                  subtract_last=subtract_last, verbose=verbose, **kwargs)
+                                  subtract_last=subtract_last, use_weekend_embedding=use_weekend_embedding, verbose=verbose, **kwargs)
     
     
-    def forward(self, x):           # x: [Batch, Input length, Channel]
+    def forward(self, x, weekend_flag=None):           # x: [Batch, Input length, Channel], weekend_flag: [Batch, Input length]
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  # x: [Batch, Channel, Input length]
-            res = self.model_res(res_init)
-            trend = self.model_trend(trend_init)
+            res = self.model_res(res_init, weekend_flag=weekend_flag)
+            trend = self.model_trend(trend_init, weekend_flag=weekend_flag)
             x = res + trend
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
             x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
-            x = self.model(x)
+            x = self.model(x, weekend_flag=weekend_flag)
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         return x

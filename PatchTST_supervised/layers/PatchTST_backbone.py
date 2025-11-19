@@ -20,13 +20,16 @@ class PatchTST_backbone(nn.Module):
                  padding_var:Optional[int]=None, attn_mask:Optional[Tensor]=None, res_attention:bool=True, pre_norm:bool=False, store_attn:bool=False,
                  pe:str='zeros', learn_pe:bool=True, fc_dropout:float=0., head_dropout = 0, padding_patch = None,
                  pretrain_head:bool=False, head_type = 'flatten', individual = False, revin = True, affine = True, subtract_last = False,
-                 verbose:bool=False, **kwargs):
+                 use_weekend_embedding:bool=False, verbose:bool=False, **kwargs):
         
         super().__init__()
         
         # RevIn
         self.revin = revin
         if self.revin: self.revin_layer = RevIN(c_in, affine=affine, subtract_last=subtract_last)
+        
+        # Weekend/Weekday embedding flag
+        self.use_weekend_embedding = use_weekend_embedding
         
         # Patching
         self.patch_len = patch_len
@@ -42,7 +45,7 @@ class PatchTST_backbone(nn.Module):
                                 n_layers=n_layers, d_model=d_model, n_heads=n_heads, d_k=d_k, d_v=d_v, d_ff=d_ff,
                                 attn_dropout=attn_dropout, dropout=dropout, act=act, key_padding_mask=key_padding_mask, padding_var=padding_var,
                                 attn_mask=attn_mask, res_attention=res_attention, pre_norm=pre_norm, store_attn=store_attn,
-                                pe=pe, learn_pe=learn_pe, verbose=verbose, **kwargs)
+                                pe=pe, learn_pe=learn_pe, use_weekend_embedding=use_weekend_embedding, verbose=verbose, **kwargs)
 
         # Head
         self.head_nf = d_model * patch_num
@@ -57,7 +60,7 @@ class PatchTST_backbone(nn.Module):
             self.head = Flatten_Head(self.individual, self.n_vars, self.head_nf, target_window, head_dropout=head_dropout)
         
     
-    def forward(self, z):                                                                   # z: [bs x nvars x seq_len]
+    def forward(self, z, weekend_flag=None):                                                 # z: [bs x nvars x seq_len], weekend_flag: [bs x seq_len]
         # norm
         if self.revin: 
             z = z.permute(0,2,1)
@@ -70,8 +73,21 @@ class PatchTST_backbone(nn.Module):
         z = z.unfold(dimension=-1, size=self.patch_len, step=self.stride)                   # z: [bs x nvars x patch_num x patch_len]
         z = z.permute(0,1,3,2)                                                              # z: [bs x nvars x patch_len x patch_num]
         
+        # Process weekend flag for patching if provided
+        weekend_flag_patched = None
+        if self.use_weekend_embedding and weekend_flag is not None:
+            # Average weekend flag over each patch (majority vote or average)
+            bs, seq_len = weekend_flag.shape
+            if self.padding_patch == 'end':
+                # Pad weekend flag if needed
+                weekend_flag = torch.cat([weekend_flag, weekend_flag[:, -1:]], dim=1)
+            # Reshape to patches: [bs x patch_num x patch_len]
+            weekend_flag_patched = weekend_flag.unfold(dimension=-1, size=self.patch_len, step=self.stride)
+            # Take majority vote for each patch (0 or 1)
+            weekend_flag_patched = (weekend_flag_patched.float().mean(dim=-1) > 0.5).long()  # [bs x patch_num]
+        
         # model
-        z = self.backbone(z)                                                                # z: [bs x nvars x d_model x patch_num]
+        z = self.backbone(z, weekend_flag=weekend_flag_patched)                            # z: [bs x nvars x d_model x patch_num]
         z = self.head(z)                                                                    # z: [bs x nvars x target_window] 
         
         # denorm
@@ -130,13 +146,14 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
                  n_layers=3, d_model=128, n_heads=16, d_k=None, d_v=None,
                  d_ff=256, norm='BatchNorm', attn_dropout=0., dropout=0., act="gelu", store_attn=False,
                  key_padding_mask='auto', padding_var=None, attn_mask=None, res_attention=True, pre_norm=False,
-                 pe='zeros', learn_pe=True, verbose=False, **kwargs):
+                 pe='zeros', learn_pe=True, use_weekend_embedding=False, verbose=False, **kwargs):
         
         
         super().__init__()
         
         self.patch_num = patch_num
         self.patch_len = patch_len
+        self.use_weekend_embedding = use_weekend_embedding
         
         # Input encoding
         q_len = patch_num
@@ -145,6 +162,10 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
 
         # Positional encoding
         self.W_pos = positional_encoding(pe, learn_pe, q_len, d_model)
+        
+        # Weekend/Weekday embedding (2 classes: weekday=0, weekend=1)
+        if self.use_weekend_embedding:
+            self.weekend_embedding = nn.Embedding(2, d_model)  # 0: weekday, 1: weekend
 
         # Residual dropout
         self.dropout = nn.Dropout(dropout)
@@ -154,7 +175,7 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
                                    pre_norm=pre_norm, activation=act, res_attention=res_attention, n_layers=n_layers, store_attn=store_attn)
 
         
-    def forward(self, x) -> Tensor:                                              # x: [bs x nvars x patch_len x patch_num]
+    def forward(self, x, weekend_flag=None) -> Tensor:                           # x: [bs x nvars x patch_len x patch_num], weekend_flag: [bs x patch_num]
         
         n_vars = x.shape[1]
         # Input encoding
@@ -163,6 +184,16 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
 
         u = torch.reshape(x, (x.shape[0]*x.shape[1],x.shape[2],x.shape[3]))      # u: [bs * nvars x patch_num x d_model]
         u = self.dropout(u + self.W_pos)                                         # u: [bs * nvars x patch_num x d_model]
+        
+        # Add weekend embedding if provided
+        if self.use_weekend_embedding and weekend_flag is not None:
+            # weekend_flag: [bs x patch_num]
+            # Expand to [bs * nvars x patch_num]
+            weekend_flag_expanded = weekend_flag.unsqueeze(1).repeat(1, n_vars, 1)  # [bs x nvars x patch_num]
+            weekend_flag_expanded = weekend_flag_expanded.reshape(-1, weekend_flag.shape[1])  # [bs * nvars x patch_num]
+            # Get embedding: [bs * nvars x patch_num x d_model]
+            weekend_emb = self.weekend_embedding(weekend_flag_expanded)
+            u = u + weekend_emb  # Add weekend embedding to positional encoding
 
         # Encoder
         z = self.encoder(u)                                                      # z: [bs * nvars x patch_num x d_model]
