@@ -79,8 +79,9 @@ class PatchTST_backbone(nn.Module):
             # Average weekend flag over each patch (majority vote or average)
             bs, seq_len = weekend_flag.shape
             if self.padding_patch == 'end':
-                # Pad weekend flag if needed
-                weekend_flag = torch.cat([weekend_flag, weekend_flag[:, -1:]], dim=1)
+                # Pad weekend flag with the last value repeated `stride` times (match ReplicationPad1d)
+                pad_vals = weekend_flag[:, -1:].repeat(1, self.stride)
+                weekend_flag = torch.cat([weekend_flag, pad_vals], dim=1)
             # Reshape to patches: [bs x patch_num x patch_len]
             weekend_flag_patched = weekend_flag.unfold(dimension=-1, size=self.patch_len, step=self.stride)
             # Take majority vote for each patch (0 or 1)
