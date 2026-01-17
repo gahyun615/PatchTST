@@ -28,7 +28,7 @@ class PatchTST_backbone(nn.Module):
         self.revin = revin
         if self.revin: self.revin_layer = RevIN(c_in, affine=affine, subtract_last=subtract_last)
         
-        # Weekend/Weekday embedding flag
+        # Day-of-week embedding flag
         self.use_weekend_embedding = use_weekend_embedding
         
         # Patching
@@ -60,7 +60,7 @@ class PatchTST_backbone(nn.Module):
             self.head = Flatten_Head(self.individual, self.n_vars, self.head_nf, target_window, head_dropout=head_dropout)
         
     
-    def forward(self, z, weekend_flag=None):                                                 # z: [bs x nvars x seq_len], weekend_flag: [bs x seq_len]
+    def forward(self, z, weekday_flag=None):                                                 # z: [bs x nvars x seq_len], weekday_flag: [bs x seq_len]
         # norm
         if self.revin: 
             z = z.permute(0,2,1)
@@ -73,22 +73,24 @@ class PatchTST_backbone(nn.Module):
         z = z.unfold(dimension=-1, size=self.patch_len, step=self.stride)                   # z: [bs x nvars x patch_num x patch_len]
         z = z.permute(0,1,3,2)                                                              # z: [bs x nvars x patch_len x patch_num]
         
-        # Process weekend flag for patching if provided
-        weekend_flag_patched = None
-        if self.use_weekend_embedding and weekend_flag is not None:
-            # Average weekend flag over each patch (majority vote or average)
-            bs, seq_len = weekend_flag.shape
+        # Process weekday flag for patching if provided
+        weekday_flag_patched = None
+        if self.use_weekend_embedding and weekday_flag is not None:
+            # Get most frequent weekday in each patch (mode)
+            bs, seq_len = weekday_flag.shape
             if self.padding_patch == 'end':
-                # Pad weekend flag with the last value repeated `stride` times (match ReplicationPad1d)
-                pad_vals = weekend_flag[:, -1:].repeat(1, self.stride)
-                weekend_flag = torch.cat([weekend_flag, pad_vals], dim=1)
+                # Pad weekday flag with the last value repeated `stride` times (match ReplicationPad1d)
+                pad_vals = weekday_flag[:, -1:].repeat(1, self.stride)
+                weekday_flag = torch.cat([weekday_flag, pad_vals], dim=1)
             # Reshape to patches: [bs x patch_num x patch_len]
-            weekend_flag_patched = weekend_flag.unfold(dimension=-1, size=self.patch_len, step=self.stride)
-            # Take majority vote for each patch (0 or 1)
-            weekend_flag_patched = (weekend_flag_patched.float().mean(dim=-1) > 0.5).long()  # [bs x patch_num]
+            weekday_flag_patched = weekday_flag.unfold(dimension=-1, size=self.patch_len, step=self.stride)
+            # Take mode (most frequent weekday) for each patch, rounding average to nearest integer
+            weekday_flag_patched = weekday_flag_patched.float().mean(dim=-1).round().long()  # [bs x patch_num]
+            # Clamp to valid range [0, 6]
+            weekday_flag_patched = torch.clamp(weekday_flag_patched, 0, 6)
         
         # model
-        z = self.backbone(z, weekend_flag=weekend_flag_patched)                            # z: [bs x nvars x d_model x patch_num]
+        z = self.backbone(z, weekday_flag=weekday_flag_patched)                            # z: [bs x nvars x d_model x patch_num]
         z = self.head(z)                                                                    # z: [bs x nvars x target_window] 
         
         # denorm
@@ -164,9 +166,9 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
         # Positional encoding
         self.W_pos = positional_encoding(pe, learn_pe, q_len, d_model)
         
-        # Weekend/Weekday embedding (2 classes: weekday=0, weekend=1)
+        # Day-of-week embedding (7 classes: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday)
         if self.use_weekend_embedding:
-            self.weekend_embedding = nn.Embedding(2, d_model)  # 0: weekday, 1: weekend
+            self.weekend_embedding = nn.Embedding(7, d_model)  # 0-6: Monday-Sunday
 
         # Residual dropout
         self.dropout = nn.Dropout(dropout)
@@ -176,7 +178,7 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
                                    pre_norm=pre_norm, activation=act, res_attention=res_attention, n_layers=n_layers, store_attn=store_attn)
 
         
-    def forward(self, x, weekend_flag=None) -> Tensor:                           # x: [bs x nvars x patch_len x patch_num], weekend_flag: [bs x patch_num]
+    def forward(self, x, weekday_flag=None) -> Tensor:                           # x: [bs x nvars x patch_len x patch_num], weekday_flag: [bs x patch_num]
         
         n_vars = x.shape[1]
         # Input encoding
@@ -186,15 +188,15 @@ class TSTiEncoder(nn.Module):  #i means channel-independent
         u = torch.reshape(x, (x.shape[0]*x.shape[1],x.shape[2],x.shape[3]))      # u: [bs * nvars x patch_num x d_model]
         u = self.dropout(u + self.W_pos)                                         # u: [bs * nvars x patch_num x d_model]
         
-        # Add weekend embedding if provided
-        if self.use_weekend_embedding and weekend_flag is not None:
-            # weekend_flag: [bs x patch_num]
+        # Add weekday embedding if provided
+        if self.use_weekend_embedding and weekday_flag is not None:
+            # weekday_flag: [bs x patch_num]
             # Expand to [bs * nvars x patch_num]
-            weekend_flag_expanded = weekend_flag.unsqueeze(1).repeat(1, n_vars, 1)  # [bs x nvars x patch_num]
-            weekend_flag_expanded = weekend_flag_expanded.reshape(-1, weekend_flag.shape[1])  # [bs * nvars x patch_num]
+            weekday_flag_expanded = weekday_flag.unsqueeze(1).repeat(1, n_vars, 1)  # [bs x nvars x patch_num]
+            weekday_flag_expanded = weekday_flag_expanded.reshape(-1, weekday_flag.shape[1])  # [bs * nvars x patch_num]
             # Get embedding: [bs * nvars x patch_num x d_model]
-            weekend_emb = self.weekend_embedding(weekend_flag_expanded)
-            u = u + weekend_emb  # Add weekend embedding to positional encoding
+            weekday_emb = self.weekend_embedding(weekday_flag_expanded)
+            u = u + weekday_emb  # Add weekday embedding to positional encoding
 
         # Encoder
         z = self.encoder(u)                                                      # z: [bs * nvars x patch_num x d_model]
