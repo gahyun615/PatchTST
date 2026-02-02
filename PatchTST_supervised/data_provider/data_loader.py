@@ -313,7 +313,7 @@ class Dataset_Custom(Dataset):
             data_stamp = data_stamp.transpose(1, 0)
 
         # Extract weekday information for day-of-week embedding
-        # weekday: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
+        # weekday: 0=Monday, 1=Tuesday, ..., 6=Sunday
         df_stamp_weekday = df_raw[["date"]][border1:border2]
         df_stamp_weekday["date"] = pd.to_datetime(df_stamp_weekday.date)
         df_stamp_weekday["weekday"] = df_stamp_weekday.date.apply(

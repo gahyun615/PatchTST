@@ -157,7 +157,6 @@ class Exp_Main(Exp_Basic):
             for i, batch_data in enumerate(train_loader):
                 iter_count += 1
                 model_optim.zero_grad()
-
                 # Handle both old format (4 items) and new format (5 items with weekday flag)
                 if len(batch_data) == 5:
                     batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekday = (
@@ -211,7 +210,6 @@ class Exp_Main(Exp_Basic):
                             outputs = self.model(
                                 batch_x, batch_x_mark, dec_inp, batch_y_mark
                             )[0]
-
                         else:
                             outputs = self.model(
                                 batch_x, batch_x_mark, dec_inp, batch_y_mark, batch_y

@@ -62,7 +62,7 @@ class PatchTST_backbone(nn.Module):
         if self.revin:
             self.revin_layer = RevIN(c_in, affine=affine, subtract_last=subtract_last)
 
-        # Weekend/Weekday embedding flag
+        # Day-of-week embedding flag
         self.use_weekend_embedding = use_weekend_embedding
 
         # Patching
@@ -110,9 +110,7 @@ class PatchTST_backbone(nn.Module):
         self.individual = individual
 
         if self.pretrain_head:
-            self.head = self.create_pretrain_head(
-                self.head_nf, c_in, fc_dropout
-            )  # custom head passed as a partial func with all its kwargs
+            self.head = self.create_pretrain_head(self.head_nf, c_in, fc_dropout)
         elif head_type == "flatten":
             self.head = Flatten_Head(
                 self.individual,
@@ -283,7 +281,6 @@ class TSTiEncoder(nn.Module):  # i means channel-independent
     ) -> (
         Tensor
     ):  # x: [bs x nvars x patch_len x patch_num], weekday_flag: [bs x patch_num]
-
         n_vars = x.shape[1]
         # Input encoding
         x = x.permute(0, 1, 3, 2)  # x: [bs x nvars x patch_num x patch_len]
