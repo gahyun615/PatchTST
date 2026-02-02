@@ -51,6 +51,8 @@ class PatchTST_backbone(nn.Module):
         affine=True,
         subtract_last=False,
         use_weekend_embedding: bool = False,
+        use_time_concat: bool = False,
+        time_dim: int = 4,
         verbose: bool = False,
         **kwargs,
     ):
@@ -64,6 +66,9 @@ class PatchTST_backbone(nn.Module):
 
         # Day-of-week embedding flag
         self.use_weekend_embedding = use_weekend_embedding
+        # TimeXer-style: concat time features (month, day, weekday, hour) with patch, then one linear
+        self.use_time_concat = use_time_concat
+        self.time_dim = time_dim if use_time_concat else 0
 
         # Patching
         self.patch_len = patch_len
@@ -74,11 +79,12 @@ class PatchTST_backbone(nn.Module):
             self.padding_patch_layer = nn.ReplicationPad1d((0, stride))
             patch_num += 1
 
-        # Backbone
+        # Backbone (patch_len_effective = patch_len + time_dim when use_time_concat)
+        patch_len_effective = patch_len + self.time_dim
         self.backbone = TSTiEncoder(
             c_in,
             patch_num=patch_num,
-            patch_len=patch_len,
+            patch_len=patch_len_effective,
             max_seq_len=max_seq_len,
             n_layers=n_layers,
             d_model=d_model,
@@ -102,6 +108,8 @@ class PatchTST_backbone(nn.Module):
             **kwargs,
         )
 
+        self.patch_len_effective = patch_len_effective
+
         # Head
         self.head_nf = d_model * patch_num
         self.n_vars = c_in
@@ -121,8 +129,8 @@ class PatchTST_backbone(nn.Module):
             )
 
     def forward(
-        self, z, weekday_flag=None
-    ):  # z: [bs x nvars x seq_len], weekday_flag: [bs x seq_len]
+        self, z, weekday_flag=None, x_mark=None
+    ):  # z: [bs x nvars x seq_len], weekday_flag: [bs x seq_len], x_mark: [bs x seq_len x time_dim]
         # norm
         if self.revin:
             z = z.permute(0, 2, 1)
@@ -136,6 +144,27 @@ class PatchTST_backbone(nn.Module):
             dimension=-1, size=self.patch_len, step=self.stride
         )  # z: [bs x nvars x patch_num x patch_len]
         z = z.permute(0, 1, 3, 2)  # z: [bs x nvars x patch_len x patch_num]
+
+        # TimeXer-style: concat time features (x_mark) with patch, then one linear projection
+        if self.use_time_concat and x_mark is not None:
+            bs, seq_len, _ = x_mark.shape
+            if self.padding_patch == "end":
+                pad_vals = x_mark[:, -1:, :].repeat(1, self.stride, 1)
+                x_mark = torch.cat([x_mark, pad_vals], dim=1)
+            x_mark = x_mark.unfold(
+                dimension=1, size=self.patch_len, step=self.stride
+            )  # [bs x patch_num x time_dim x patch_len]
+            x_mark_patched = x_mark.float().mean(dim=-1)  # [bs x patch_num x time_dim]
+            n_vars = z.shape[1]
+            x_mark_expanded = x_mark_patched.unsqueeze(1).expand(
+                -1, n_vars, -1, -1
+            )  # [bs x nvars x patch_num x time_dim]
+            z = torch.cat(
+                [z.permute(0, 1, 3, 2), x_mark_expanded], dim=-1
+            )  # [bs x nvars x patch_num x (patch_len+time_dim)]
+            z = z.permute(
+                0, 1, 3, 2
+            )  # z: [bs x nvars x (patch_len+time_dim) x patch_num]
 
         # Process weekday flag for patching if provided
         weekday_flag_patched = None

@@ -66,6 +66,9 @@ class Model(nn.Module):
 
         # Weekend embedding flag (default to True for electricity dataset)
         use_weekend_embedding = getattr(configs, "use_weekend_embedding", True)
+        # TimeXer-style: concat time (month, day, weekday, hour) with patch, then one linear (default False)
+        use_time_concat = getattr(configs, "use_time_concat", False)
+        time_dim = getattr(configs, "time_dim", 4)
 
         # model
         self.decomposition = decomposition
@@ -106,6 +109,8 @@ class Model(nn.Module):
                 affine=affine,
                 subtract_last=subtract_last,
                 use_weekend_embedding=use_weekend_embedding,
+                use_time_concat=use_time_concat,
+                time_dim=time_dim,
                 verbose=verbose,
                 **kwargs
             )
@@ -144,6 +149,8 @@ class Model(nn.Module):
                 affine=affine,
                 subtract_last=subtract_last,
                 use_weekend_embedding=use_weekend_embedding,
+                use_time_concat=use_time_concat,
+                time_dim=time_dim,
                 verbose=verbose,
                 **kwargs
             )
@@ -183,24 +190,28 @@ class Model(nn.Module):
                 affine=affine,
                 subtract_last=subtract_last,
                 use_weekend_embedding=use_weekend_embedding,
+                use_time_concat=use_time_concat,
+                time_dim=time_dim,
                 verbose=verbose,
                 **kwargs
             )
 
     def forward(
-        self, x, weekday_flag=None
-    ):  # x: [Batch, Input length, Channel], weekday_flag: [Batch, Input length]
+        self, x, weekday_flag=None, x_mark=None
+    ):  # x: [Batch, Input length, Channel], weekday_flag: [Batch, Input length], x_mark: [Batch, Input length, time_dim]
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0, 2, 1), trend_init.permute(
                 0, 2, 1
             )  # x: [Batch, Channel, Input length]
-            res = self.model_res(res_init, weekday_flag=weekday_flag)
-            trend = self.model_trend(trend_init, weekday_flag=weekday_flag)
+            res = self.model_res(res_init, weekday_flag=weekday_flag, x_mark=x_mark)
+            trend = self.model_trend(
+                trend_init, weekday_flag=weekday_flag, x_mark=x_mark
+            )
             x = res + trend
             x = x.permute(0, 2, 1)  # x: [Batch, Input length, Channel]
         else:
             x = x.permute(0, 2, 1)  # x: [Batch, Channel, Input length]
-            x = self.model(x, weekday_flag=weekday_flag)
+            x = self.model(x, weekday_flag=weekday_flag, x_mark=x_mark)
             x = x.permute(0, 2, 1)  # x: [Batch, Input length, Channel]
         return x
