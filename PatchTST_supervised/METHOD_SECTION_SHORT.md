@@ -34,3 +34,8 @@ Input → RevIN → Patching → [Patch Embedding + PE + Weekend Embedding]
 
 
 
+
+
+
+
+

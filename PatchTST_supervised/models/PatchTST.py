@@ -79,16 +79,16 @@ class Model(nn.Module):
                                   subtract_last=subtract_last, use_weekend_embedding=use_weekend_embedding, verbose=verbose, **kwargs)
     
     
-    def forward(self, x, weekday_flag=None):           # x: [Batch, Input length, Channel], weekday_flag: [Batch, Input length]
+    def forward(self, x, weekend_flag=None):           # x: [Batch, Input length, Channel], weekend_flag: [Batch, Input length]
         if self.decomposition:
             res_init, trend_init = self.decomp_module(x)
             res_init, trend_init = res_init.permute(0,2,1), trend_init.permute(0,2,1)  # x: [Batch, Channel, Input length]
-            res = self.model_res(res_init, weekday_flag=weekday_flag)
-            trend = self.model_trend(trend_init, weekday_flag=weekday_flag)
+            res = self.model_res(res_init, weekend_flag=weekend_flag)
+            trend = self.model_trend(trend_init, weekend_flag=weekend_flag)
             x = res + trend
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         else:
             x = x.permute(0,2,1)    # x: [Batch, Channel, Input length]
-            x = self.model(x, weekday_flag=weekday_flag)
+            x = self.model(x, weekend_flag=weekend_flag)
             x = x.permute(0,2,1)    # x: [Batch, Input length, Channel]
         return x

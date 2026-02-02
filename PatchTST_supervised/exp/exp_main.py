@@ -56,13 +56,13 @@ class Exp_Main(Exp_Basic):
         self.model.eval()
         with torch.no_grad():
             for i, batch_data in enumerate(vali_loader):
-                # Handle both old format (4 items) and new format (5 items with weekday flag)
+                # Handle both old format (4 items) and new format (5 items with weekend flag)
                 if len(batch_data) == 5:
-                    batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekday = batch_data
-                    batch_x_weekday = batch_x_weekday.long().to(self.device)
+                    batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekend = batch_data
+                    batch_x_weekend = batch_x_weekend.long().to(self.device)
                 else:
                     batch_x, batch_y, batch_x_mark, batch_y_mark = batch_data
-                    batch_x_weekday = None
+                    batch_x_weekend = None
                 
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float()
@@ -77,7 +77,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if 'Linear' in self.args.model or 'TST' in self.args.model:
-                            outputs = self.model(batch_x, weekday_flag=batch_x_weekday)
+                            outputs = self.model(batch_x, weekend_flag=batch_x_weekend)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -141,13 +141,13 @@ class Exp_Main(Exp_Basic):
                 iter_count += 1
                 model_optim.zero_grad()
                 
-                # Handle both old format (4 items) and new format (5 items with weekday flag)
+                # Handle both old format (4 items) and new format (5 items with weekend flag)
                 if len(batch_data) == 5:
-                    batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekday = batch_data
-                    batch_x_weekday = batch_x_weekday.long().to(self.device)
+                    batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekend = batch_data
+                    batch_x_weekend = batch_x_weekend.long().to(self.device)
                 else:
                     batch_x, batch_y, batch_x_mark, batch_y_mark = batch_data
-                    batch_x_weekday = None
+                    batch_x_weekend = None
                 
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
@@ -162,7 +162,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if 'Linear' in self.args.model or 'TST' in self.args.model:
-                            outputs = self.model(batch_x, weekday_flag=batch_x_weekday)
+                            outputs = self.model(batch_x, weekend_flag=batch_x_weekend)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -176,7 +176,7 @@ class Exp_Main(Exp_Basic):
                         train_loss.append(loss.item())
                 else:
                     if 'Linear' in self.args.model or 'TST' in self.args.model:
-                            outputs = self.model(batch_x, weekday_flag=batch_x_weekday)
+                            outputs = self.model(batch_x, weekend_flag=batch_x_weekend)
                     else:
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -249,13 +249,13 @@ class Exp_Main(Exp_Basic):
         self.model.eval()
         with torch.no_grad():
             for i, batch_data in enumerate(test_loader):
-                # Handle both old format (4 items) and new format (5 items with weekday flag)
+                # Handle both old format (4 items) and new format (5 items with weekend flag)
                 if len(batch_data) == 5:
-                    batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekday = batch_data
-                    batch_x_weekday = batch_x_weekday.long().to(self.device)
+                    batch_x, batch_y, batch_x_mark, batch_y_mark, batch_x_weekend = batch_data
+                    batch_x_weekend = batch_x_weekend.long().to(self.device)
                 else:
                     batch_x, batch_y, batch_x_mark, batch_y_mark = batch_data
-                    batch_x_weekday = None
+                    batch_x_weekend = None
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
 
@@ -269,7 +269,7 @@ class Exp_Main(Exp_Basic):
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
                         if 'Linear' in self.args.model or 'TST' in self.args.model:
-                            outputs = self.model(batch_x, weekday_flag=batch_x_weekday)
+                            outputs = self.model(batch_x, weekend_flag=batch_x_weekend)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
@@ -277,7 +277,7 @@ class Exp_Main(Exp_Basic):
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 else:
                     if 'Linear' in self.args.model or 'TST' in self.args.model:
-                            outputs = self.model(batch_x, weekday_flag=batch_x_weekday)
+                            outputs = self.model(batch_x, weekend_flag=batch_x_weekend)
                     else:
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]

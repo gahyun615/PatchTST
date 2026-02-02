@@ -312,15 +312,15 @@ class Dataset_Custom(Dataset):
             )
             data_stamp = data_stamp.transpose(1, 0)
 
-        # Extract weekday information for day-of-week embedding
-        # weekday: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
+        # Extract weekday information for weekend/weekday embedding
+        # weekday: 0=Monday, 6=Sunday. Weekend: 5=Saturday, 6=Sunday
         df_stamp_weekday = df_raw[["date"]][border1:border2]
         df_stamp_weekday["date"] = pd.to_datetime(df_stamp_weekday.date)
         df_stamp_weekday["weekday"] = df_stamp_weekday.date.apply(
             lambda row: row.weekday(), 1
         )
-        # Store weekday as 0-6 (Monday-Sunday)
-        self.weekday_flag = df_stamp_weekday["weekday"].astype(int).values
+        # 0: weekday (Mon-Fri), 1: weekend (Sat-Sun)
+        self.weekend_flag = (df_stamp_weekday["weekday"] >= 5).astype(int).values
 
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
@@ -337,10 +337,10 @@ class Dataset_Custom(Dataset):
         seq_x_mark = self.data_stamp[s_begin:s_end]
         seq_y_mark = self.data_stamp[r_begin:r_end]
 
-        # Extract weekday flag for input sequence
-        seq_x_weekday = self.weekday_flag[s_begin:s_end]
+        # Extract weekend flag for input sequence
+        seq_x_weekend = self.weekend_flag[s_begin:s_end]
 
-        return seq_x, seq_y, seq_x_mark, seq_y_mark, seq_x_weekday
+        return seq_x, seq_y, seq_x_mark, seq_y_mark, seq_x_weekend
 
     def __len__(self):
         return len(self.data_x) - self.seq_len - self.pred_len + 1
